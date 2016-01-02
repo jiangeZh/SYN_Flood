@@ -97,33 +97,33 @@ init_header(struct ip *ip, struct tcphdr *tcp, struct pseudohdr *pseudoheader)
 {
 	int len = sizeof(struct ip) + sizeof(struct tcphdr);
 	// IP头部数据初始化
-	ip.hl = (4<<4 | sizeof(struct ip)/sizeof(unsigned int));
-	ip.tos = 0;
-	ip.total_len = htons(len);
-	ip.id = 1;
-	ip.frag_and_flags = 0x40;
-	ip.ttl = 255;
-	ip.proto = IPPROTO_TCP;
-	ip.checksum = 0;
-	ip.sourceIP = 0;
-	ip.destIP = inet_addr(dst_ip);
+	ip->hl = (4<<4 | sizeof(struct ip)/sizeof(unsigned int));
+	ip->tos = 0;
+	ip->total_len = htons(len);
+	ip->id = 1;
+	ip->frag_and_flags = 0x40;
+	ip->ttl = 255;
+	ip->proto = IPPROTO_TCP;
+	ip->checksum = 0;
+	ip->sourceIP = 0;
+	ip->destIP = inet_addr(dst_ip);
 
 	// TCP头部数据初始化
-	tcp.sport = htons( rand()%16383 + 49152 );
-	tcp.dport = htons(dst_port);
-	tcp.seq = htonl( rand()%90000000 + 2345 ); 
-	tcp.ack = htonl( rand()%90000000 + 2345 ); 
-	tcp.lenres = (sizeof(struct tcphdr)/4<<4|0);
-	tcp.flag = 0x02;
-	tcp.win = htons (2048);  
-	tcp.sum = 0;
-	tcp.urp = 0;
+	tcp->sport = htons( rand()%16383 + 49152 );
+	tcp->dport = htons(dst_port);
+	tcp->seq = htonl( rand()%90000000 + 2345 ); 
+	tcp->ack = htonl( rand()%90000000 + 2345 ); 
+	tcp->lenres = (sizeof(struct tcphdr)/4<<4|0);
+	tcp->flag = 0x02;
+	tcp->win = htons (2048);  
+	tcp->sum = 0;
+	tcp->urp = 0;
 
 	//TCP伪头部
-	pseudoheader.zero = 0;
-	pseudoheader.protocol = IPPROTO_TCP;
-	pseudoheader.length = htons(sizeof(struct tcphdr));
-	pseudoheader.daddr = inet_addr(dst_ip);
+	pseudoheader->zero = 0;
+	pseudoheader->protocol = IPPROTO_TCP;
+	pseudoheader->length = htons(sizeof(struct tcphdr));
+	pseudoheader->daddr = inet_addr(dst_ip);
 	srand((unsigned) time(NULL));
 
 }
